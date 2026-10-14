@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apartamentos | Disponibilidad</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root { --ink: #17324d; --aqua: #0c8d87; --paper: #f4f7f6; --accent: #e5a93f; }
+        body { background: var(--paper); color: var(--ink); font-family: Georgia, "Times New Roman", serif; }
+        .navbar { background: var(--ink); }
+        .brand-mark { color: var(--accent) !important; font-weight: 700; letter-spacing: 1px; }
+        .nav-links a { color: #fff; text-decoration: none; margin-left: 1.25rem; opacity: .75; }
+        .nav-links a:hover, .nav-links a.active { opacity: 1; }
+        .nav-links a.active { border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+        .page-header { border-bottom: 3px solid var(--accent); }
+        .panel { background: #fff; border: 1px solid #d9e1df; border-radius: 6px; box-shadow: 0 8px 20px rgb(23 50 77 / 8%); }
+        .table thead th { color: #fff; background: var(--ink); white-space: nowrap; }
+        .btn-primary { background: var(--aqua); border-color: var(--aqua); }
+        .btn-primary:hover { background: #08736e; border-color: #08736e; }
+        .btn-outline-primary { color: var(--aqua); border-color: var(--aqua); }
+        .btn-outline-primary:hover { background: var(--aqua); border-color: var(--aqua); }
+        .form-control:focus, .form-select:focus { border-color: var(--aqua); box-shadow: 0 0 0 .2rem rgb(12 141 135 / 18%); }
+        .modulo { display: block; color: inherit; text-decoration: none; transition: transform .15s, box-shadow .15s; }
+        .modulo:hover { transform: translateY(-3px); box-shadow: 0 12px 26px rgb(23 50 77 / 14%); color: inherit; }
+        .modulo .icono { font-size: 1.8rem; }
+        .kpi { font-size: 2rem; font-weight: 700; color: var(--aqua); }
+        .miniatura { width: 64px; height: 44px; object-fit: cover; border-radius: 4px; background: #e9eeed; }
+        @media (max-width: 767px) { .table { font-size: .86rem; } .nav-links a { margin-left: .75rem; } }
+    </style>
+</head>
+<body>
+    <div id="nav"></div>
+    <main class="container pb-5" id="app"></main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        'use strict';
+
+        const NAV = [
+            ['index.html', 'Inicio'], ['clientes.html', 'Clientes'], ['propiedades.html', 'Propiedades'],
+            ['habitaciones.html', 'Habitaciones'], ['disponibilidad.html', 'Disponibilidad'],
+            ['reservas.html', 'Reservas'], ['pagos.html', 'Pagos'], ['reportes.html', 'Reportes']
+        ];
+
+        function esc(v) {
+            return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function humanize(s) {
+            const t = String(s ?? '').replace(/_/g, ' ').toLowerCase();
+            return t.charAt(0).toUpperCase() + t.slice(1);
+        }
+        const moneyFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+        function money(n) { return n === null || n === undefined ? '—' : moneyFmt.format(n); }
+        function fecha(d) { return d ? String(d).split('-').reverse().join('/') : '—'; }
+        function fechaIso(d) {
+            const p = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        }
+        const COLORES_ESTADO = {
+            ACTIVO: 'success', DISPONIBLE: 'success', CONFIRMADA: 'success', PAGADO: 'success',
+            PENDIENTE: 'warning', SUSPENDIDO: 'warning', MANTENIMIENTO: 'warning',
+            CANCELADA: 'secondary', CANCELADO: 'secondary', INACTIVO: 'secondary', NO_DISPONIBLE: 'danger',
+            COMPLETADA: 'info', OCUPADA: 'primary', PROPIETARIO: 'dark', CLIENTE: 'primary', EMPRESA: 'info',
+            CASA: 'info', PISO: 'primary'
+        };
+        function badge(valor, texto) {
+            return `<span class="badge text-bg-${COLORES_ESTADO[valor] || 'secondary'}">${esc(texto || humanize(valor))}</span>`;
+        }
+
+        async function api(metodo, url, cuerpo) {
+            const opciones = { method: metodo, headers: {} };
+            if (cuerpo !== undefined) {
+                opciones.headers['Content-Type'] = 'application/json';
+                opciones.body = JSON.stringify(cuerpo);
+            }
+            const res = await fetch(url, opciones);
+            if (res.status === 204) return null;
+            const texto = await res.text();
+            let datos = null;
+            if (texto) { try { datos = JSON.parse(texto); } catch (e) { datos = null; } }
+            if (!res.ok) {
+                const error = new Error((datos && datos.mensaje) || `Error ${res.status}`);
+                error.detalles = (datos && datos.detalles) || [];
+                error.status = res.status;
+                throw error;
+            }
+            return datos;
+        }
+
+        function renderNav() {
+            const actual = location.pathname.split('/').pop() || 'index.html';
+            const enlaces = NAV.map(([href, texto]) => `<a href="${href}" class="${href === actual ? 'active' : ''}">${texto}</a>`).join('');
+            document.getElementById('nav').innerHTML = `
+                <nav class="navbar navbar-expand-lg navbar-dark mb-4"><div class="container flex-wrap">
+                    <a class="navbar-brand brand-mark" href="index.html">APARTAMENTOS</a>
+                    <div class="nav-links ms-auto">${enlaces}</div>
+                </div></nav>`;
+        }
+
+        function showAlert(tipo, mensaje, detalles = []) {
+            const modal = document.querySelector('#modalGenerico.show');
+            const contenedor = modal ? modal.querySelector('.modal-alert') : document.getElementById('alertas');
+            if (!contenedor) return;
+            const lista = detalles.length ? `<ul class="mb-0 mt-2">${detalles.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : '';
+            contenedor.innerHTML = `<div class="alert alert-${tipo} alert-dismissible fade show" role="alert">
+                <div>${esc(mensaje)}${lista}</div><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            if (!modal) window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        function showError(e) { showAlert('danger', e.message || 'Error inesperado', e.detalles || []); }
+
+        function abrirModal(titulo, cuerpoHtml, pieHtml = '') {
+            let el = document.getElementById('modalGenerico');
+            if (!el) {
+                document.body.insertAdjacentHTML('beforeend', `
+                    <div class="modal fade" id="modalGenerico" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header"><h3 class="modal-title fs-5"></h3><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                            <div class="modal-body"><div class="modal-alert"></div><div class="modal-contenido"></div></div>
+                            <div class="modal-footer"></div>
+                        </div></div></div>`);
+                el = document.getElementById('modalGenerico');
+            }
+            el.querySelector('.modal-title').textContent = titulo;
+            el.querySelector('.modal-alert').innerHTML = '';
+            el.querySelector('.modal-contenido').innerHTML = cuerpoHtml;
+            const pie = el.querySelector('.modal-footer');
+            pie.innerHTML = pieHtml;
+            pie.style.display = pieHtml ? '' : 'none';
+            const instancia = bootstrap.Modal.getOrCreateInstance(el);
+            instancia.show();
+            return { el: el.querySelector('.modal-contenido'), raiz: el, cerrar: () => instancia.hide() };
+        }
+
+        const normalizar = o => (typeof o === 'object' && o !== null) ? o : { value: o, label: humanize(o) };
+
+        async function cargarOpciones(campo, valores) {
+            if (Array.isArray(campo.options)) return campo.options.map(normalizar);
+            if (typeof campo.options === 'function') return (await campo.options(valores || {})).map(normalizar);
+            return [];
+        }
+
+        async function poblarSelect(select, campo, valores, seleccionado) {
+            let opciones = [];
+            try { opciones = await cargarOpciones(campo, valores); } catch (e) { showError(e); }
+            const vacio = campo.emptyLabel || 'Seleccione…';
+            select.innerHTML = `<option value="">${esc(vacio)}</option>` +
+                opciones.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+            if (seleccionado !== undefined && seleccionado !== null) select.value = String(seleccionado);
+        }
+
+        function campoHtml(f, prefijo) {
+            const id = prefijo + f.name;
+            const req = f.required ? 'required' : '';
+            const etiqueta = `<label class="form-label" for="${id}">${esc(f.label)}${f.required ? ' *' : ''}</label>`;
+            let control;
+            if (f.type === 'select') {
+                control = `<select class="form-select" id="${id}" name="${f.name}" ${req}></select>`;
+            } else if (f.type === 'textarea') {
+                control = `<textarea class="form-control" id="${id}" name="${f.name}" rows="2" ${req} ${f.maxlength ? `maxlength="${f.maxlength}"` : ''}></textarea>`;
+            } else {
+                const attrs = ['min', 'max', 'step', 'maxlength', 'pattern', 'placeholder', 'title']
+                    .filter(a => f[a] !== undefined).map(a => `${a}="${esc(f[a])}"`).join(' ');
+                control = `<input class="form-control" id="${id}" name="${f.name}" type="${f.type || 'text'}" ${attrs} ${req}>`;
+            }
+            return `<div class="mb-3">${etiqueta}${control}${f.ayuda ? `<div class="form-text">${esc(f.ayuda)}</div>` : ''}</div>`;
+        }
+
+        function leerCampos(contenedor, campos) {
+            const valores = {};
+            for (const f of campos) {
+                const el = contenedor.querySelector(`[name="${f.name}"]`);
+                if (!el) continue;
+                let v = el.value.trim();
+                if (v === '') v = null;
+                else if (f.type === 'number') v = Number(v);
+                valores[f.name] = v;
+            }
+            return valores;
+        }
+
+        async function asignarCampos(contenedor, campos, valores) {
+            for (const f of campos) {                      
+                const el = contenedor.querySelector(`[name="${f.name}"]`);
+                let v = valores[f.name];
+                if (v === undefined || v === null) v = f.default ?? '';
+                if (f.type === 'select') await poblarSelect(el, f, leerCampos(contenedor, campos), v);
+                else el.value = v;
+            }
+        }
+
+        async function montarCampos(contenedor, campos, prefijo, valores = {}) {
+            contenedor.innerHTML = campos.map(f => campoHtml(f, prefijo)).join('');
+            if (prefijo === 'e-') {
+                campos.filter(f => f.soloLecturaAlEditar).forEach(f => { contenedor.querySelector(`[name="${f.name}"]`).disabled = true; });
+            }
+            await asignarCampos(contenedor, campos, valores);
+            for (const f of campos.filter(c => c.dependsOn)) {
+                const padre = contenedor.querySelector(`[name="${f.dependsOn}"]`);
+                const hijo = contenedor.querySelector(`[name="${f.name}"]`);
+                padre.addEventListener('change', () => poblarSelect(hijo, f, leerCampos(contenedor, campos), null));
+            }
+        }
+
+        const nombreDe = c => `${c.nombres} ${c.apellidos}`;
+        const opciones = {
+            propiedades: async () => (await api('GET', '/api/propiedades')).map(p => ({ value: p.id, label: `#${p.id} · ${p.titulo}` })),
+            propietarios: async () => (await api('GET', '/api/clientes?estatus=ACTIVO'))
+                .filter(c => c.tipo !== 'CLIENTE').map(c => ({ value: c.id, label: `${nombreDe(c)} (${humanize(c.tipo)})` })),
+            arrendatarios: async () => (await api('GET', '/api/clientes?estatus=ACTIVO'))
+                .filter(c => c.tipo !== 'PROPIETARIO').map(c => ({ value: c.id, label: `${nombreDe(c)} (${humanize(c.tipo)})` })),
+            clientes: async () => (await api('GET', '/api/clientes')).map(c => ({ value: c.id, label: nombreDe(c) })),
+            habitacionesDe: async v => v.propiedadId
+                ? (await api('GET', `/api/habitaciones?propiedadId=${v.propiedadId}`))
+                    .map(h => ({ value: h.id, label: `${h.numero}${h.nombre ? ' · ' + h.nombre : ''} (${humanize(h.tipo)})` }))
+                : [],
+            reservasActivas: async () => (await api('GET', '/api/reservas')).filter(r => r.estado !== 'CANCELADA')
+                .map(r => ({ value: r.id, label: `#${r.id} · ${nombreDe(r.cliente)} · ${r.propiedad.titulo} (${fecha(r.fechaInicio)} → ${fecha(r.fechaFin)})` }))
+        };
+
+        async function crudPage(cfg) {
+            renderNav();
+            const singular = cfg.singular;
+            const filtros = cfg.filters || [];
+            const camposEdicion = cfg.editFields ? cfg.fields.filter(f => cfg.editFields.includes(f.name)) : cfg.fields;
+            const payload = valores => cfg.toPayload ? cfg.toPayload(valores)
+                : Object.fromEntries(cfg.fields.map(f => [f.name, valores[f.name] ?? null]));
+            let filas = [];
+
+            document.getElementById('app').innerHTML = `
+                <header class="page-header d-flex justify-content-between align-items-end mb-4 pb-3">
+                    <div><p class="text-uppercase small mb-1 text-secondary">Administración</p><h1 class="h2 mb-0">${esc(cfg.titulo)}</h1></div>
+                    <span class="badge text-bg-light border" id="contador">0 registrados</span>
+                </header>
+                <div id="alertas"></div>
+                <div class="row g-4">
+                    <section class="col-lg-4">
+                        <div class="panel p-4">
+                            <h2 class="h5 mb-3">Registrar ${esc(singular.toLowerCase())}</h2>
+                            <form id="formCrear"><div id="camposCrear"></div><button class="btn btn-primary w-100" type="submit">Guardar ${esc(singular.toLowerCase())}</button></form>
+                        </div>
+                        <div id="panelesExtra"></div>
+                    </section>
+                    <section class="col-lg-8">
+                        <div class="panel p-3 p-md-4">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                                <h2 class="h5 mb-0">Listado</h2>
+                                <input id="buscador" class="form-control form-control-sm w-auto" type="search" placeholder="Buscar en la tabla">
+                            </div>
+                            <div class="row g-2 mb-3" id="filtros"></div>
+                            <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead id="encabezado"></thead><tbody id="cuerpo"></tbody></table></div>
+                        </div>
+                    </section>
+                </div>`;
+
+            const camposCrear = document.getElementById('camposCrear');
+            const tbody = document.getElementById('cuerpo');
+
+            document.getElementById('encabezado').innerHTML =
+                `<tr>${cfg.columns.map(c => `<th>${esc(c.label)}</th>`).join('')}<th class="text-end">Acciones</th></tr>`;
+
+            function accionesHtml(r, i) {
+                const botones = [];
+                if (!cfg.sinEdicion && (!cfg.puedeEditar || cfg.puedeEditar(r)))
+                    botones.push(`<button class="btn btn-outline-primary btn-sm" data-accion="editar" data-i="${i}">Editar</button>`);
+                (cfg.acciones ? cfg.acciones(r) : []).forEach((a, j) =>
+                    botones.push(`<button class="btn ${a.cls || 'btn-outline-secondary'} btn-sm" data-accion="extra" data-i="${i}" data-j="${j}">${esc(a.label)}</button>`));
+                if (!cfg.puedeEliminar || cfg.puedeEliminar(r))
+                    botones.push(`<button class="btn btn-outline-danger btn-sm" data-accion="eliminar" data-i="${i}">Eliminar</button>`);
+                return botones.join(' ');
+            }
+
+            function dibujarTabla() {
+                document.getElementById('contador').textContent = `${filas.length} registrados`;
+                tbody.innerHTML = filas.length
+                    ? filas.map((r, i) => `<tr>${cfg.columns.map(c => `<td>${c.render(r)}</td>`).join('')}<td class="text-end text-nowrap">${accionesHtml(r, i)}</td></tr>`).join('')
+                    : `<tr><td colspan="${cfg.columns.length + 1}" class="text-center text-secondary py-4">No hay ${esc(cfg.titulo.toLowerCase())} registrados.</td></tr>`;
+                aplicarBusqueda();
+            }
+
+            function aplicarBusqueda() {
+                const q = document.getElementById('buscador').value.toLowerCase();
+                tbody.querySelectorAll('tr').forEach(tr => {
+                    if (tr.cells.length < 2) return;
+                    const texto = Array.from(tr.cells).slice(0, -1).map(c => c.textContent).join(' ').toLowerCase();
+                    tr.style.display = texto.includes(q) ? '' : 'none';
+                });
+            }
+            document.getElementById('buscador').addEventListener('input', aplicarBusqueda);
+
+            async function cargar() {
+                const params = new URLSearchParams();
+                for (const f of filtros) {
+                    const el = document.getElementById('filtro-' + f.name);
+                    const valor = f.type === 'checkbox' ? (el.checked ? 'true' : '') : el.value.trim();
+                    if (valor) params.append(f.name, valor);
+                }
+                const qs = params.toString();
+                try { filas = await api('GET', cfg.endpoint + (qs ? '?' + qs : '')); }
+                catch (e) { showError(e); filas = []; }
+                dibujarTabla();
+            }
+            const ctx = { recargar: cargar, ok: msg => showAlert('success', msg) };
+
+            const contFiltros = document.getElementById('filtros');
+            contFiltros.innerHTML = filtros.map(f => f.type === 'checkbox'
+                ? `<div class="col-auto d-flex align-items-end"><div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="filtro-${f.name}"><label class="form-check-label small" for="filtro-${f.name}">${esc(f.label)}</label></div></div>`
+                : `<div class="col-sm-6 col-md-4"><label class="form-label small mb-1" for="filtro-${f.name}">${esc(f.label)}</label>${f.type === 'text'
+                    ? `<input class="form-control form-control-sm" id="filtro-${f.name}" placeholder="${esc(f.placeholder || '')}">`
+                    : `<select class="form-select form-select-sm" id="filtro-${f.name}"></select>`}</div>`).join('');
+            for (const f of filtros) {
+                const el = document.getElementById('filtro-' + f.name);
+                if (f.type !== 'checkbox' && f.type !== 'text') await poblarSelect(el, { options: f.options, emptyLabel: 'Todos' }, {}, '');
+                el.addEventListener(f.type === 'text' ? 'change' : 'change', cargar);
+            }
+
+            await montarCampos(camposCrear, cfg.fields, 'c-', {});
+            document.getElementById('formCrear').addEventListener('submit', async ev => {
+                ev.preventDefault();
+                try {
+                    await api('POST', cfg.endpoint, payload(leerCampos(camposCrear, cfg.fields)));
+                    showAlert('success', `${singular} registrado correctamente.`);
+                    await asignarCampos(camposCrear, cfg.fields, {});
+                    await cargar();
+                } catch (e) { showError(e); }
+            });
+
+            async function editar(r) {
+                const base = cfg.fromRow ? cfg.fromRow(r) : r;
+                const m = abrirModal(`Editar ${singular.toLowerCase()}`, '<form id="formEditar"><div id="camposEditar"></div></form>',
+                    '<button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" type="submit" form="formEditar">Guardar cambios</button>');
+                const cont = m.el.querySelector('#camposEditar');
+                await montarCampos(cont, camposEdicion, 'e-', base);
+                m.el.querySelector('#formEditar').addEventListener('submit', async ev => {
+                    ev.preventDefault();
+                    try {
+                        await api('PUT', `${cfg.endpoint}/${r.id}`, payload({ ...base, ...leerCampos(cont, camposEdicion) }));
+                        m.cerrar();
+                        showAlert('success', `${singular} actualizado correctamente.`);
+                        await cargar();
+                    } catch (e) { showError(e); }
+                });
+            }
+
+            tbody.addEventListener('click', async ev => {
+                const boton = ev.target.closest('button[data-accion]');
+                if (!boton) return;
+                const r = filas[Number(boton.dataset.i)];
+                try {
+                    if (boton.dataset.accion === 'editar') await editar(r);
+                    else if (boton.dataset.accion === 'extra') await cfg.acciones(r)[Number(boton.dataset.j)].handler(r, ctx);
+                    else if (confirm(`¿Eliminar ${singular.toLowerCase()} #${r.id}?`)) {
+                        await api('DELETE', `${cfg.endpoint}/${r.id}`);
+                        showAlert('success', `${singular} eliminado correctamente.`);
+                        await cargar();
+                    }
+                } catch (e) { showError(e); }
+            });
+
+            if (cfg.paneles) await cfg.paneles(document.getElementById('panelesExtra'));
+            await cargar();
+        }
+    </script>
+    <script>
+const camposConsulta = [
+    { name: 'propiedadId', label: 'Propiedad', type: 'select', options: opciones.propiedades, required: true },
+    { name: 'habitacionId', label: 'Habitación', type: 'select', options: opciones.habitacionesDe, dependsOn: 'propiedadId', emptyLabel: 'Propiedad completa' },
+    { name: 'inicio', label: 'Entrada', type: 'date', required: true },
+    { name: 'fin', label: 'Salida', type: 'date', required: true }
+];
+
+crudPage({
+    titulo: 'Disponibilidad', singular: 'Regla de calendario', endpoint: '/api/disponibilidades', sinEdicion: true,
+    fields: [
+        { name: 'propiedadId', label: 'Propiedad', type: 'select', options: opciones.propiedades, required: true },
+        { name: 'habitacionId', label: 'Habitación', type: 'select', options: opciones.habitacionesDe, dependsOn: 'propiedadId', emptyLabel: 'Propiedad completa' },
+        { name: 'tipo', label: 'Tipo de regla', type: 'select', required: true, default: 'BLOQUEO',
+          options: [{ value: 'BLOQUEO', label: 'Bloqueo (no se puede reservar)' }, { value: 'TARIFA', label: 'Tarifa especial' }] },
+        { name: 'fechaInicio', label: 'Desde (primera noche)', type: 'date', required: true },
+        { name: 'fechaFin', label: 'Hasta (día de salida)', type: 'date', required: true },
+        { name: 'precioEspecial', label: 'Precio especial por noche', type: 'number', min: 0.01, step: 0.01, ayuda: 'Obligatorio solo para tarifa especial.' },
+        { name: 'motivo', label: 'Motivo', maxlength: 200 }
+    ],
+    toPayload: v => ({
+        propiedad: { id: Number(v.propiedadId) },
+        habitacion: v.habitacionId ? { id: Number(v.habitacionId) } : null,
+        fechaInicio: v.fechaInicio, fechaFin: v.fechaFin, disponible: v.tipo === 'TARIFA',
+        precioEspecial: v.tipo === 'TARIFA' ? v.precioEspecial : null, motivo: v.motivo
+    }),
+    columns: [
+        { label: 'ID', render: r => r.id },
+        { label: 'Propiedad', render: r => esc(`#${r.propiedad.id} · ${r.propiedad.titulo}`) },
+        { label: 'Unidad', render: r => r.habitacion ? `Hab. ${esc(r.habitacion.numero)}` : 'Propiedad completa' },
+        { label: 'Periodo', render: r => `${fecha(r.fechaInicio)} → ${fecha(r.fechaFin)}` },
+        { label: 'Regla', render: r => r.disponible ? '<span class="badge text-bg-info">Tarifa especial</span>' : '<span class="badge text-bg-danger">Bloqueo</span>' },
+        { label: 'Precio', render: r => money(r.precioEspecial) },
+        { label: 'Motivo', render: r => esc(r.motivo || '—') }
+    ],
+    filters: [{ name: 'propiedadId', label: 'Propiedad', options: opciones.propiedades }],
+    paneles: async cont => {
+        cont.innerHTML = `<div class="panel p-4 mt-4"><h2 class="h5 mb-3">Consultar disponibilidad</h2>
+            <form id="formConsulta"><div id="camposConsulta"></div><button class="btn btn-outline-primary w-100" type="submit">Consultar</button></form>
+            <div id="resultadoConsulta" class="mt-3"></div></div>`;
+        const campos = cont.querySelector('#camposConsulta');
+        await montarCampos(campos, camposConsulta, 'q-', {});
+        cont.querySelector('#formConsulta').addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const v = leerCampos(campos, camposConsulta);
+            const params = new URLSearchParams({ propiedadId: v.propiedadId, inicio: v.inicio, fin: v.fin });
+            if (v.habitacionId) params.append('habitacionId', v.habitacionId);
+            const salida = cont.querySelector('#resultadoConsulta');
+            try {
+                const r = await api('GET', `/api/disponibilidades/consulta?${params}`);
+                salida.innerHTML = r.disponible
+                    ? `<div class="alert alert-success mb-0"><strong>Disponible</strong> · ${r.noches} noche(s)<br>Monto estimado: <strong>${money(r.montoEstimado)}</strong></div>`
+                    : `<div class="alert alert-warning mb-0"><strong>No disponible</strong><br>${esc(r.motivo)}</div>`;
+            } catch (e) { salida.innerHTML = `<div class="alert alert-danger mb-0">${esc(e.message)}${(e.detalles || []).map(d => `<br>${esc(d)}`).join('')}</div>`; }
+        });
+    }
+});
+    </script>
+</body>
+</html>
